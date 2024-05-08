@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
 
 from UserDatabase import UserDatabase
+from UserLocations import UserLocations
 from UserQueries import UserQueries
 from NewsApiClient import NewsApiClient
 from UserSubscriptions import UserSubscriptions
@@ -24,6 +25,7 @@ class NewsBot:
         self.user_db = UserDatabase()
         self.user_queries = UserQueries()
         self.user_subs = UserSubscriptions()
+        self.user_locations = UserLocations()
         self.cache = {}
         self.user_states = {}
         self.language_codes = {
@@ -163,7 +165,7 @@ class NewsBot:
             print("change_language!")
             global personal_cabinet_message_id
             user_id = call.from_user.id
-            markup = types.InlineKeyboardMarkup()  # Зміна типу клавіатури на InlineKeyboardMarkup
+            markup = types.InlineKeyboardMarkup()
             for language_name in self.language_codes.keys():
                 markup.add(types.InlineKeyboardButton(language_name, callback_data=f"select_language_{language_name}"))
             markup.add(types.InlineKeyboardButton("Back", callback_data="personal_cabinet"))
@@ -491,6 +493,9 @@ class NewsBot:
         def handle_location(message):
             user_id = message.chat.id
             location_names = self.get_location_name(message.location.latitude, message.location.longitude)
+
+            self.user_locations.add_location(user_id, round(message.location.latitude, 2), round(message.location.longitude, 2), location_names)
+
             location_parts = location_names.split(',')
             for location_part in location_parts:
                 location_part = location_part.strip()
