@@ -32,9 +32,8 @@ class UserSubscriptions:
             return f"Successfully subscribed to '{topic}'."
 
     def get_user_subscriptions(self, user_id):
-        self.cursor.execute("SELECT id, topic FROM subscriptions WHERE user_id = ?", (user_id,))
-        subscriptions = self.cursor.fetchall()
-        return subscriptions
+        self.cursor.execute("SELECT topic FROM subscriptions WHERE user_id = ?", (user_id,))
+        return self.cursor.fetchall()
 
     def unsubscribe_from_topic(self, subscription_id):
         self.cursor.execute("DELETE FROM subscriptions WHERE id = ?", (subscription_id,))

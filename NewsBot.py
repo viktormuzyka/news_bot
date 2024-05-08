@@ -28,6 +28,8 @@ class NewsBot:
         self.user_locations = UserLocations()
         self.cache = {}
         self.user_states = {}
+        self.scheduled_jobs_recommendation = {}
+        self.scheduled_jobs_notification = {}
         self.language_codes = {
             'Arabic': 'ar',
             'German': 'de',
@@ -112,15 +114,15 @@ class NewsBot:
                 # get NOTIFICATIONS TIME
                 notify_time = self.user_db.get_notification_time(user_id)
                 if notify_time != '':
-                    message_text += f"Your Notification Time is: {notify_time}.\n"
+                    message_text += f"Your Subscription Time is: {notify_time}.\n"
                 else:
-                    message_text += "You haven't selected Notification Time yet.\n"
+                    message_text += "You haven't selected Subscription Time yet.\n"
                 # get NOTIFICATIONS PERIOD
                 notify_period = self.user_db.get_notification_frequency(user_id)
                 if notify_period != '':
-                    message_text += f"Your Notification Period is: {notify_period}.\n"
+                    message_text += f"Your Subscription Period is: {notify_period}.\n"
                 else:
-                    message_text += "You haven't selected Notification Period yet.\n"
+                    message_text += "You haven't selected Subscription Period yet.\n"
                 # get RECOMENDATION TIME
                 recommend_time = self.user_db.get_recommendation_time(user_id)
                 if recommend_time != '':
@@ -133,8 +135,8 @@ class NewsBot:
 
             markup = types.InlineKeyboardMarkup()
             markup.row(types.InlineKeyboardButton("Change Language", callback_data="change_language"))
-            markup.row(types.InlineKeyboardButton("Change Notification Time", callback_data="change_notification_time"))
-            markup.row(types.InlineKeyboardButton("Change Notification Frequency", callback_data="change_notification_frequency"))
+            markup.row(types.InlineKeyboardButton("Change Subscription Time", callback_data="change_notification_time"))
+            markup.row(types.InlineKeyboardButton("Change Subscription Frequency", callback_data="change_notification_frequency"))
             markup.row(types.InlineKeyboardButton("Change Recommendation Time", callback_data="change_recommendation_time"))
             markup.row(types.InlineKeyboardButton("Back", callback_data="start"))
 
@@ -222,7 +224,7 @@ class NewsBot:
             try:
                 frequency = call.data.split("_")[2]
                 self.user_db.set_notification_frequency(user_id, frequency)
-                self.bot.answer_callback_query(call.id, f"Notification frequency set to {frequency}.")
+                self.bot.answer_callback_query(call.id, f"Subscription frequency set to {frequency}.")
             except Exception as e:
                 print(e)
                 self.bot.send_message(user_id, "An error occurred while processing your request. Please try again.")
@@ -231,8 +233,8 @@ class NewsBot:
         def change_notification_time_callback(call):
             user_id = call.from_user.id
             try:
-                self.user_states[user_id] = "waiting_for_notification_time"
-                self.bot.send_message(user_id, "Please enter the new notification time in 24-hour format (e.g., 23:59):")
+                self.user_states[user_id] = "waiting_for_subscription_time"
+                self.bot.send_message(user_id, "Please enter the new subscription time in 24-hour format (e.g., 23:59):")
             except Exception as e:
                 print(e)
                 self.bot.send_message(user_id, "An error occurred while processing your request. Please try again.")
@@ -476,7 +478,7 @@ class NewsBot:
                     self.bot.send_message(user_id, "Recommendation time updated successfully.", reply_markup=markup)
                 except Exception as e:
                     self.bot.send_message(user_id, f"Error: {str(e)}")
-            elif user_state == "waiting_for_notification_time":
+            elif user_state == "waiting_for_subscription_time":
                 markup = types.InlineKeyboardMarkup()
                 markup.row(types.InlineKeyboardButton("Back", callback_data="personal_cabinet_new"))
                 try:
@@ -485,7 +487,7 @@ class NewsBot:
                         raise ValueError("Invalid time format. Please enter time in the format 'HH:MM'.")
 
                     self.user_db.set_notification_time(user_id, notification_time)
-                    self.bot.send_message(user_id, "Notification time updated successfully.", reply_markup=markup)
+                    self.bot.send_message(user_id, "Subscription time updated successfully.", reply_markup=markup)
                 except Exception as e:
                     self.bot.send_message(user_id, f"Error: {str(e)}")
 
@@ -546,46 +548,97 @@ class NewsBot:
             self.bot.send_message(message, "An error occurred while processing your request. Please try changing the search topic or your news language.")
             return 0
 
-    def send_recommendations(self):
+    def schedule_check_recommendation_and_subs(self):
+        schedule.every().minute.do(self.check_recommendation_times)
+        schedule.every().second.do(self.check_subscription_times)
+
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+    ###### RECOMMENDATION FUNC
+    def check_recommendation_times(self):
+        user_recommendation_times = self.user_db.get_users_for_recommendation()
+
+        for user_id, recommendation_time in user_recommendation_times:
+            if user_id not in self.scheduled_jobs_recommendation or self.scheduled_jobs[user_id] != recommendation_time:
+                self.cancel_previous_job_recommendation(user_id)
+                self.schedule_new_job_recommendation(user_id, recommendation_time)
+    def cancel_previous_job_recommendation(self, user_id):
+        if user_id in self.scheduled_jobs_recommendation:
+            schedule.cancel_job(self.scheduled_jobs_recommendation[user_id])
+    def schedule_new_job_recommendation(self, user_id, recommendation_time):
+        job = schedule.every().day.at(recommendation_time).do(self.send_recommendations_for_user, user_id=user_id)
+        self.scheduled_jobs_recommendation[user_id] = job
+
+    def send_recommendations_for_user(self, user_id):
         current_date = datetime.now()
         previous_date = current_date - timedelta(days=1)
         formatted_date = previous_date.strftime("%Y-%m-%d")
 
-        user_ids = self.user_db.get_users_for_recommendation()
+        popular_queries = self.user_queries.get_popular_queries(user_id)
+        message = ""
 
-        for user_id in user_ids:
-            popular_queries = self.user_queries.get_popular_queries(user_id)
-            message = ""
+        for idx, query in enumerate(popular_queries, start=1):
+            topic = query["theme"]
+            news_results = self.news_api_client.get_news_by_topic(topic, self.user_db.get_language_code(user_id), formatted_date, 1)
+            if news_results:
+                recommended_news = news_results[0]
+                message += f"{idx}. {recommended_news['title']}\n{recommended_news['url']}\n"
 
-            for idx, query in enumerate(popular_queries, start=1):
-                topic = query["theme"]
-                news_results = self.news_api_client.get_news_by_topic(topic, self.user_db.get_language_code(user_id), formatted_date)
-                if news_results:
-                    recommended_news = news_results[0]
-                    message += f"{idx}. {recommended_news['title']}\n{recommended_news['url']}\n"
+        if message != "":
+            message = "Here are today's top recommendations based on your interests:\n" + message
+            self.bot.send_message(user_id, text=message)
+    ###### RECOMMENDATION FUNC
 
-            if message != "":
-                message = "Here are today's top recommendations based on your interests:\n" + message
-                self.bot.send_message(user_id, text=message)
+    ###### SUBSCRIPTION NEWS
+    def check_subscription_times(self):
+        user_notification_times = self.user_db.get_user_for_subscriptions()
 
-    def schedule_recommendations(self):
-        schedule.every().day.at("21:10").do(self.send_recommendations)
+        print(user_notification_times)
 
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
+        for user_id, subscription_time, frequency in user_notification_times:
+            if user_id not in self.scheduled_jobs_notification or self.scheduled_jobs_notification[user_id] != subscription_time or self.scheduled_jobs_notification[user_id] != frequency:
+                self.cancel_previous_job_notification(user_id)
+                self.schedule_new_job_notification(user_id, subscription_time, frequency)
 
+    def cancel_previous_job_notification(self, user_id):
+        if user_id in self.scheduled_jobs_notification:
+            schedule.cancel_job(self.scheduled_jobs_notification[user_id])
 
-    def schedule_subscriptions(self):
-        schedule.every().day.at("21:10").do(self.send_recommendations)
+    def schedule_new_job_notification(self, user_id, subscription_time, frequency):
+        if frequency == "daily":
+            job = schedule.every().day.at(subscription_time).do(self.send_notification_for_user, user_id=user_id)
+        elif frequency == "weekly":
+            job = schedule.every().week.at(subscription_time).do(self.send_notification_for_user, user_id=user_id)
+        else:
+            job = schedule.every().day.at(subscription_time).do(self.send_notification_for_user, user_id=user_id)
+            job.interval = 30
 
-        while True:
-            schedule.run_pending()
-            time.sleep(60)
+        print(user_id, subscription_time, frequency)
 
+        self.scheduled_jobs_notification[user_id] = job
+
+    def send_notification_for_user(self, user_id):
+        topics = self.user_subs.get_user_subscriptions(user_id)
+        print("send_notification_for_user", topics, )
+        current_date = datetime.now()
+
+        news_date = current_date - timedelta(days=1)
+
+        for topic in topics:
+            news_results = self.news_api_client.get_news_by_topic(topic, self.user_db.get_language_code(user_id), news_date.strftime("%Y-%m-%d"), 3)
+
+            if news_results:
+                message = f"Here are the latest news updates{topic}:\n"
+                for idx, news in enumerate(news_results, start=1):
+                    message += f"{idx}. {news['title']}\n{news['url']}\n"
+
+            self.bot.send_message(user_id, text=message)
+
+    ###### SUBSCRIPTION NEWS
     def start_bot(self):
-        schedule_thread = threading.Thread(target=self.schedule_recommendations)
-        schedule_thread.start()
+        schedule_thread_recomm = threading.Thread(target=self.schedule_check_recommendation_and_subs)
+        schedule_thread_recomm.start()
 
         self.bot.infinity_polling()
 

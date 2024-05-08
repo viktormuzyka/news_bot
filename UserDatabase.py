@@ -1,5 +1,4 @@
 import sqlite3
-
 class UserDatabase:
     def __init__(self):
         self.conn = None
@@ -21,17 +20,18 @@ class UserDatabase:
                               , language_code TEXT
                               , recommendation INTEGER
                               , recommendation_time TEXT DEFAULT '12:00'
-                              , notification_frequency TEXT DEFAULT 'weekly'
-                              , notification_time TEXT DEFAULT '12:00')''')
+                              , subscription_frequency TEXT DEFAULT 'weekly'
+                              , subscription_time TEXT DEFAULT '12:00')''')
 
         self.conn.commit()
 
     def add_user(self, user_id, first_name, last_name, user_name):
         with self.conn:
-            self.cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
-            existing_user = self.cursor.fetchone()
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+            existing_user = cursor.fetchone()
             if not existing_user:
-                self.cursor.execute("INSERT INTO users (user_id, first_name, last_name, user_name) VALUES (?, ?, ?, ?)", (user_id, first_name, last_name, user_name))
+                cursor.execute("INSERT INTO users (user_id, first_name, last_name, user_name) VALUES (?, ?, ?, ?)", (user_id, first_name, last_name, user_name))
 
 
     def set_language_code(self, user_id, language_code):
@@ -40,7 +40,7 @@ class UserDatabase:
         if existing_user:
             self.cursor.execute("UPDATE users SET language_code = ? WHERE user_id = ?", (language_code, user_id))
         else:
-            self.cursor.execute("INSERT INTO users (user_id, chat_id, language_code) VALUES (?, ?)", (user_id, language_code))
+            self.cursor.execute("INSERT INTO users (user_id, language_code) VALUES (?, ?)", (user_id, language_code))
         self.conn.commit()
 
 
@@ -64,16 +64,21 @@ class UserDatabase:
         return result[0] if result else ''
 
     def get_users_for_recommendation(self):
-        self.cursor.execute("SELECT user_id FROM users WHERE recommendation = 1")
-        users_with_recommendation = [row[0] for row in self.cursor.fetchall()]
-        return users_with_recommendation
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, recommendation_time FROM users WHERE recommendation = 1")
+        return cursor.fetchall()
+
+    def get_user_for_subscriptions(self):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT user_id, subscription_time, subscription_frequency FROM users")
+        return cursor.fetchall()
 
     def set_recommendation_time(self, user_id, recommendation_time):
         self.cursor.execute("UPDATE users SET recommendation_time = ? WHERE user_id = ?", (recommendation_time, user_id))
         self.conn.commit()
 
-    def set_notification_time(self, user_id, notification_time):
-        self.cursor.execute("UPDATE users SET notification_time = ? WHERE user_id = ?", (notification_time, user_id))
+    def set_notification_time(self, user_id, subscription_time):
+        self.cursor.execute("UPDATE users SET subscription_time = ? WHERE user_id = ?", (subscription_time, user_id))
         self.conn.commit()
 
     def get_recommendation_time(self, user_id):
@@ -82,17 +87,17 @@ class UserDatabase:
         return result[0] if result else ''
 
     def get_notification_time(self, user_id):
-        self.cursor.execute("SELECT notification_time FROM users WHERE user_id = ?", (user_id,))
+        self.cursor.execute("SELECT subscription_time FROM users WHERE user_id = ?", (user_id,))
         result = self.cursor.fetchone()
         return result[0] if result else ''
 
     def set_notification_frequency(self, user_id, frequency):
         with self.conn:
-            self.cursor.execute("UPDATE users SET notification_frequency = ? WHERE user_id = ?", (frequency, user_id))
+            self.cursor.execute("UPDATE users SET subscription_frequency = ? WHERE user_id = ?", (frequency, user_id))
             self.conn.commit()
 
     def get_notification_frequency(self, user_id):
-        self.cursor.execute("SELECT notification_frequency FROM users WHERE user_id = ?", (user_id,))
+        self.cursor.execute("SELECT subscription_frequency FROM users WHERE user_id = ?", (user_id,))
         result = self.cursor.fetchone()
         return result[0] if result else ''
 
