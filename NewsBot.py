@@ -49,6 +49,31 @@ class NewsBot:
         self.setup_handlers()
 
     def setup_handlers(self):
+        @self.bot.message_handler(commands=['author'])
+        def send_welcome(message):
+            self.bot.reply_to(message, "Contact in telegram: https://t.me/muzyka_viktor")
+        @self.bot.message_handler(commands=['help'])
+        def send_help_message(message):
+            help_text = (
+                "Hello! This is a guide to using the bot.\n"
+                "To get news:\n"
+                "1. First, use the /start command to sign up.\n"
+                "2. Select the news settings from the menu.\n"
+                "3. Wait for the bot response and follow the instructions.\n"
+                "To get recommendation:\n"
+                "1. Select im main menu recommendation.\n"
+                "2. Select include for get recommendation\n"
+                "2.1 Select exclude for stop receive recommendation\n"
+                "News subscriptions:\n"
+                "- Add or unsubscribe to news topics through the 'News subscriptions' in menu.\n"
+                "Setting up recommendations and subscriptions:\n"
+                "- Set the time and period for receiving recommendations and news through the 'Settings' menu.\n"
+                "- Available periods: daily, weekly, monthly.\n"
+                "Additional commands:\n"
+                "/help - display this help message.\n"
+                "/author - display about author.\n"
+            )
+            self.bot.reply_to(message, help_text)
         @self.bot.message_handler(commands=['start'])
         def start(message):
             user_id = message.chat.id
@@ -256,19 +281,21 @@ class NewsBot:
             user_id = call.from_user.id
 
             try:
-                user_subscriptions = self.user_subs.get_user_subscriptions(user_id)
+                print("subscription!1")
+                user_subscriptions = self.user_subs.get_user_subscriptions_with_id(user_id)
                 num_subscriptions = len(user_subscriptions)
                 message_text = f"You have {num_subscriptions}/10 subscriptions"
-
+                print("subscription!2")
                 markup = types.InlineKeyboardMarkup()
                 for sub_id, topic in user_subscriptions:
                     markup.row(types.InlineKeyboardButton(f"{topic} ❌", callback_data=f"unsubscribe_{sub_id}_{topic}"))
-
+                print("subscription!3")
                 if num_subscriptions > 1:
                     markup.row(types.InlineKeyboardButton("Unsubscribe All ❌", callback_data="unsubscribe_all"))
                 markup.row(types.InlineKeyboardButton("Add Topic", callback_data="add_topic"))
                 markup.row(types.InlineKeyboardButton("Back", callback_data="start"))
 
+                print("subscription!4")
                 is_edited = False
                 if personal_cabinet_message_id:
                     try:
@@ -332,7 +359,7 @@ class NewsBot:
             try:
                 sub_id = call.data.split("_", 2)[2]
                 if sub_id == "all":
-                    user_subscriptions = self.user_subs.get_user_subscriptions(user_id)
+                    user_subscriptions = self.user_subs.get_user_subscriptions_with_id(user_id)
                     for sub_id, topic in user_subscriptions:
                         self.user_subs.unsubscribe_from_topic(sub_id)
                 else:
@@ -550,7 +577,7 @@ class NewsBot:
 
     def schedule_check_recommendation_and_subs(self):
         schedule.every().minute.do(self.check_recommendation_times)
-        schedule.every().second.do(self.check_subscription_times)
+        schedule.every().minute.do(self.check_subscription_times)
 
         while True:
             schedule.run_pending()

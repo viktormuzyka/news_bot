@@ -31,6 +31,10 @@ class UserSubscriptions:
             self.conn.commit()
             return f"Successfully subscribed to '{topic}'."
 
+    def get_user_subscriptions_with_id(self, user_id):
+        self.cursor.execute("SELECT id, topic FROM subscriptions WHERE user_id = ?", (user_id,))
+        return self.cursor.fetchall()
+
     def get_user_subscriptions(self, user_id):
         self.cursor.execute("SELECT topic FROM subscriptions WHERE user_id = ?", (user_id,))
         return self.cursor.fetchall()
