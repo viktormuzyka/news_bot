@@ -284,7 +284,7 @@ class NewsBot:
                 print("subscription!1")
                 user_subscriptions = self.user_subs.get_user_subscriptions_with_id(user_id)
                 num_subscriptions = len(user_subscriptions)
-                message_text = f"You have {num_subscriptions}/10 subscriptions"
+                message_text = f"You have {num_subscriptions}/5 subscriptions"
                 print("subscription!2")
                 markup = types.InlineKeyboardMarkup()
                 for sub_id, topic in user_subscriptions:
@@ -452,6 +452,23 @@ class NewsBot:
                 personal_cabinet_message_id = sent_message.message_id
                 self.user_states[user_id] = "waiting_for_news"
 
+        @self.bot.callback_query_handler(func=lambda call: call.data.startswith('reaction_'))
+        def handle_reaction_callback(call):
+            user_id = call.from_user.id
+            reaction, topic = call.data.split("|")
+
+            message = self.user_queries.increase_reaction(user_id, topic, reaction)
+
+            if message:
+                self.bot.answer_callback_query(call.id, message)
+
+            self.bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=None)
+
+            new_markup = types.InlineKeyboardMarkup()
+            new_markup.add(types.InlineKeyboardButton(text=f"Another news about {topic}", callback_data=f"more_news_{topic}"))
+            new_markup.row(types.InlineKeyboardButton(text="Back to menu", callback_data="start_new"))
+            self.bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.message_id, reply_markup=new_markup)
+
         @self.bot.callback_query_handler(func=lambda call: True)
         def callback_handler(call):
             try:
@@ -477,8 +494,8 @@ class NewsBot:
                 markup.row(types.InlineKeyboardButton("Back", callback_data="subscription"))
 
                 num_subscriptions = len(self.user_subs.get_user_subscriptions(user_id))
-                if num_subscriptions >= 10:
-                    sent_message = self.bot.send_message(user_id, "You have reached the maximum limit of subscriptions (10). You cannot subscribe to more topics.", reply_markup=markup)
+                if num_subscriptions >= 5:
+                    sent_message = self.bot.send_message(user_id, "You have reached the maximum limit of subscriptions (5). You cannot subscribe to more topics.", reply_markup=markup)
                     personal_cabinet_message_id = sent_message.message_id
                     return
 
@@ -486,6 +503,7 @@ class NewsBot:
                 sent_message = self.bot.send_message(user_id, subscription_result, reply_markup=markup)
                 personal_cabinet_message_id = sent_message.message_id
             elif user_state == "waiting_for_news":
+                print(message.text)
                 topic = message.text
                 if topic == "News":
                     news_callback(message)
@@ -526,10 +544,12 @@ class NewsBot:
             self.user_locations.add_location(user_id, round(message.location.latitude, 2), round(message.location.longitude, 2), location_names)
 
             location_parts = location_names.split(',')
+            print(location_parts)
             for location_part in location_parts:
-                location_part = location_part.strip()
-                sent_message = self.process_news_results(user_id, location_part, message, True)
-                if sent_message == 1:
+                print(location_part, len(location_part))
+                if len(location_part) < 3:
+                    continue
+                if self.process_news_results(user_id, location_part, message, True):
                     return
 
     def get_location_name(self, latitude, longitude):
@@ -540,6 +560,7 @@ class NewsBot:
 
     def process_news_results(self, user_id, topic, message, from_geo=False, edit_message_id=None):
         try:
+            is_find_news = False
             lang_code = self.user_db.get_language_code(user_id)
             cache_key = (user_id, lang_code, topic)
             if cache_key in self.cache:
@@ -558,22 +579,32 @@ class NewsBot:
                 del self.cache[cache_key]
 
             markup = types.InlineKeyboardMarkup()
+
             if message_text != "Not found, please try another topic.":
+                is_find_news = True
                 markup.add(types.InlineKeyboardButton(text=f"Another news about {topic}", callback_data=f"more_news_{topic}"))
-            elif from_geo:
-                return 0
-            markup.row(types.InlineKeyboardButton("Back to menu", callback_data="start_new"))
+
+                heart_button = types.InlineKeyboardButton(text="❤", callback_data=f"reaction_heart|{topic}")
+                like_button = types.InlineKeyboardButton(text="👍", callback_data=f"reaction_like|{topic}")
+                dislike_button = types.InlineKeyboardButton(text="👎", callback_data=f"reaction_dislike|{topic}")
+                markup.row(heart_button, like_button, dislike_button)
+
+            markup.row(types.InlineKeyboardButton(text="Back to menu", callback_data="start_new"))
+
+            if not is_find_news and from_geo:
+                return False
 
             if edit_message_id:
                 self.bot.edit_message_text(chat_id=message.chat.id, message_id=edit_message_id, text=message_text, reply_markup=markup, parse_mode='Markdown')
             else:
                 self.bot.send_message(message.chat.id, message_text, reply_markup=markup, parse_mode='Markdown')
 
-            return 1
+            return is_find_news
         except Exception as e:
             print(e)
-            self.bot.send_message(message, "An error occurred while processing your request. Please try changing the search topic or your news language.")
-            return 0
+            self.bot.send_message(message.chat.id, "An error occurred while processing your request. Please try changing the search topic or your news language.")
+            return False
+
 
     def schedule_check_recommendation_and_subs(self):
         schedule.every().minute.do(self.check_recommendation_times)
@@ -587,7 +618,7 @@ class NewsBot:
         user_recommendation_times = self.user_db.get_users_for_recommendation()
 
         for user_id, recommendation_time in user_recommendation_times:
-            if user_id not in self.scheduled_jobs_recommendation or self.scheduled_jobs[user_id] != recommendation_time:
+            if user_id not in self.scheduled_jobs_recommendation or self.scheduled_jobs_recommendation[user_id] != recommendation_time:
                 self.cancel_previous_job_recommendation(user_id)
                 self.schedule_new_job_recommendation(user_id, recommendation_time)
     def cancel_previous_job_recommendation(self, user_id):

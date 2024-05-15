@@ -10,8 +10,15 @@ class UserQueries:
         self.create_table()
 
     def create_table(self):
-        self.cursor.execute('''CREATE TABLE IF NOT EXISTS user_queries
-                              (ID INTEGER PRIMARY KEY, user_id INTEGER, theme TEXT, number_of_search INTEGER)''')
+        self.cursor.execute('''CREATE TABLE IF NOT EXISTS user_queries (
+                                    ID INTEGER PRIMARY KEY, 
+                                    user_id INTEGER, 
+                                    theme TEXT, 
+                                    number_of_search INTEGER DEFAULT 0, 
+                                    reaction_heart INTEGER DEFAULT 0, 
+                                    reaction_like INTEGER DEFAULT 0, 
+                                    reaction_dislike INTEGER DEFAULT 0
+                                );''')
         self.conn.commit()
 
     def add_query(self, user_id, theme):
@@ -24,6 +31,28 @@ class UserQueries:
         else:
             cursor.execute("INSERT INTO user_queries (user_id, theme, number_of_search) VALUES (?, ?, 1)", (user_id, theme))
         self.conn.commit()
+
+    def increase_reaction(self, user_id, theme, reaction_type):
+        theme = theme.lower()
+        cursor = self.conn.cursor()
+
+        print(user_id, theme, reaction_type)
+
+        if reaction_type == "reaction_heart":
+            cursor.execute("UPDATE user_queries SET reaction_heart = reaction_heart + 1 WHERE user_id = ? AND theme = ?", (user_id, theme))
+            message = "You reacted with ❤️"
+        elif reaction_type == "reaction_like":
+            cursor.execute("UPDATE user_queries SET reaction_like = reaction_like + 1 WHERE user_id = ? AND theme = ?", (user_id, theme))
+            message = "You reacted with 👍"
+        elif reaction_type == "reaction_dislike":
+            cursor.execute("UPDATE user_queries SET reaction_dislike = reaction_dislike + 1 WHERE user_id = ? AND theme = ?", (user_id, theme))
+            message = "You reacted with 👎"
+        else:
+            message = ""
+
+        self.conn.commit()
+        return message
+
 
     def get_popular_queries(self, user_id, limit=3):
         self.cursor.execute("SELECT theme, SUM(number_of_search) AS total_searches FROM user_queries WHERE user_id = ? GROUP BY theme ORDER BY total_searches DESC LIMIT ?", (user_id, limit))
